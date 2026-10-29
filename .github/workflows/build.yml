@@ -85,6 +85,15 @@ jobs:
           exit 1
         fi
 
+    - name: Locate glibmm variant header
+      run: |
+        echo "=== Поиск glibmm/variant.h ==="
+        find /ucrt64 -name "variant.h" 2>/dev/null | grep -i glibmm || echo "ФАЙЛ НЕ НАЙДЕН"
+        echo "=== Содержимое папки glibmm-2.4 ==="
+        ls -la /ucrt64/include/glibmm-2.4/glibmm/ 2>/dev/null | head -50 || echo "Папка glibmm не найдена"
+        echo "=== Пакет glibmm ==="
+        pacman -Ql mingw-w64-ucrt-x86_64-glibmm | grep -i "variant\|\.h$" | head -30
+
     - name: Build PulseView
       run: |
         git clone https://github.com/sigrokproject/pulseview.git
