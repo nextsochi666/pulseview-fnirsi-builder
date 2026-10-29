@@ -38,6 +38,8 @@ jobs:
           mingw-w64-ucrt-x86_64-boost
           mingw-w64-ucrt-x86_64-qt5-base
           mingw-w64-ucrt-x86_64-qt5-tools
+          mingw-w64-ucrt-x86_64-doxygen
+          mingw-w64-ucrt-x86_64-python
 
     - name: Build libsigrok with FNIRSI DLA-16 patch
       run: |
@@ -53,9 +55,15 @@ jobs:
           ./autogen.sh
         fi
 
-        ./configure --prefix=/ucrt64 --disable-python
+        ./configure --prefix=/ucrt64
         make -j$(nproc)
         make install
+
+        # Проверяем, что libsigrokcxx действительно установлен
+        if [ ! -f /ucrt64/lib/pkgconfig/libsigrokcxx.pc ]; then
+          echo "libsigrokcxx.pc не найден! Сборка C++ биндингов провалилась."
+          exit 1
+        fi
 
     - name: Build PulseView
       run: |
@@ -64,8 +72,7 @@ jobs:
         mkdir build && cd build
         cmake .. -G Ninja \
           -DCMAKE_INSTALL_PREFIX=/ucrt64 \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DDISABLE_PYTHON=ON
+          -DCMAKE_BUILD_TYPE=Release
         ninja
 
         mkdir -p /ucrt64/bin/pulseview-bundle
