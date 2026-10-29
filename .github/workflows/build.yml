@@ -87,18 +87,18 @@ jobs:
 
     - name: Build PulseView
       run: |
-        export PKG_CONFIG_PATH="/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig"
         git clone https://github.com/sigrokproject/pulseview.git
         cd pulseview
         mkdir build && cd build
         cmake .. -G Ninja \
           -DCMAKE_INSTALL_PREFIX=/ucrt64 \
           -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_AUTOMOC_COMPILER_PREDEFINES=OFF
+          -DCMAKE_AUTOMOC_COMPILER_PREDEFINES=OFF \
+          -DCMAKE_CXX_FLAGS="-I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include -I/ucrt64/include"
         ninja
 
         mkdir -p /ucrt64/bin/pulseview-bundle
-        cp pulseview.exe /ucrt64/bin/pulseview-bundle/
+        find . -name "pulseview.exe" -exec cp {} /ucrt64/bin/pulseview-bundle/ \;
 
     - name: Collect dependencies
       run: |
