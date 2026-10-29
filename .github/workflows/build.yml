@@ -1,1 +1,63 @@
-.github/workflows/build.yml
+name: Build PulseView with FNIRSI PR 306
+
+on:
+  workflow_dispatch: # Кнопка ручного запуска
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Install MSYS2 and Dependencies
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            git make cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-qt5-base
+            mingw-w64-x86_64-qt5-tools mingw-w64-x86_64-boost mingw-w64-x86_64-libusb
+            mingw-w64-x86_64-libzip mingw-w64-x86_64-glib2
+
+      - name: Clone, Patch and Build libsigrok (PR 306)
+        shell: msys2 {0}
+        run: |
+          git clone https://github.com
+          cd libsigrok
+          git fetch origin pull/306/head:fnirsi-fix
+          git checkout fnirsi-fix
+          mkdir build && cd build
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=/mingw64 ..
+          make -j$(nproc)
+          make install
+
+      - name: Clone and Build libsigrokdecode
+        shell: msys2 {0}
+        run: |
+          git clone git://sigrok.org/libsigrokdecode
+          cd libsigrokdecode
+          mkdir build && cd build
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=/mingw64 ..
+          make -j$(nproc)
+          make install
+
+      - name: Clone and Build PulseView
+        shell: msys2 {0}
+        run: |
+          git clone git://sigrok.org/pulseview
+          cd pulseview
+          mkdir build && cd build
+          cmake -G "MSYS Makefiles" -DCMAKE_INSTALL_PREFIX=/mingw64 ..
+          make -j$(nproc)
+          make install
+
+      - name: Prepare Artifacts for Download
+        shell: msys2 {0}
+        run: |
+          mkdir /c/output
+          cp /mingw64/bin/*.dll /c/output/
+          cp /mingw64/bin/pulseview.exe /c/output/
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseView-FNIRSI-Windows
+          path: C:/output/
