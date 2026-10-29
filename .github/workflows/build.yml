@@ -87,6 +87,7 @@ jobs:
 
     - name: Build PulseView
       run: |
+        export PKG_CONFIG_PATH="/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig"
         git clone https://github.com/sigrokproject/pulseview.git
         cd pulseview
         mkdir build && cd build
@@ -124,4 +125,3 @@ jobs:
       with:
         name: pulseview-fnirsi-dla16-win64
         path: /ucrt64/bin/pulseview-bundle/
-        
