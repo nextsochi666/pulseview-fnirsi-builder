@@ -28,6 +28,9 @@ jobs:
           ninja
           pkg-config
           mingw-w64-ucrt-x86_64-toolchain
+          mingw-w64-ucrt-x86_64-autotools
+          mingw-w64-ucrt-x86_64-gettext
+          mingw-w64-ucrt-x86_64-libtool
           mingw-w64-ucrt-x86_64-glib2
           mingw-w64-ucrt-x86_64-glibmm
           mingw-w64-ucrt-x86_64-libzip
@@ -36,7 +39,6 @@ jobs:
           mingw-w64-ucrt-x86_64-qt5-base
           mingw-w64-ucrt-x86_64-qt5-tools
 
-    # Шаг 1: Сборка libsigrok с патчем из PR #306
     - name: Build libsigrok with FNIRSI DLA-16 patch
       run: |
         git clone https://github.com/sigrokproject/libsigrok.git
@@ -45,12 +47,16 @@ jobs:
         curl -L https://github.com/sigrokproject/libsigrok/pull/306.diff -o pr306.diff
         git apply pr306.diff || (echo "Ошибка применения патча" && exit 1)
 
-        ./autogen.sh
+        if [ -x ./configure ]; then
+          echo "configure уже есть, пропускаем autogen"
+        else
+          ./autogen.sh
+        fi
+
         ./configure --prefix=/ucrt64 --disable-python
         make -j$(nproc)
         make install
 
-    # Шаг 2: Сборка PulseView
     - name: Build PulseView
       run: |
         git clone https://github.com/sigrokproject/pulseview.git
@@ -65,13 +71,13 @@ jobs:
         mkdir -p /ucrt64/bin/pulseview-bundle
         cp pulseview.exe /ucrt64/bin/pulseview-bundle/
 
-    # Шаг 3: Сбор зависимостей (DLL) для переносимой версии
     - name: Collect dependencies
       run: |
         cd /ucrt64/bin/pulseview-bundle
-        windeployqt pulseview.exe
+        windeployqt pulseview.exe || windeployqt *.exe
 
         cp /ucrt64/bin/libsigrok*.dll        . || true
+        cp /ucrt64/bin/libsigrokcxx*.dll     . || true
         cp /ucrt64/bin/libusb*.dll           . || true
         cp /ucrt64/bin/libglib*.dll          . || true
         cp /ucrt64/bin/libgobject*.dll       . || true
@@ -82,9 +88,7 @@ jobs:
         cp /ucrt64/bin/libgcc_s_*.dll        . || true
         cp /ucrt64/bin/libwinpthread*.dll    . || true
         cp /ucrt64/bin/libglibmm*.dll        . || true
-        cp /ucrt64/bin/libsigrokcxx*.dll     . || true
 
-    # Шаг 4: Загрузка артефакта
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
       with:
