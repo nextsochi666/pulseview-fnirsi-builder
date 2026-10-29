@@ -92,7 +92,8 @@ jobs:
         mkdir build && cd build
         cmake .. -G Ninja \
           -DCMAKE_INSTALL_PREFIX=/ucrt64 \
-          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_AUTOMOC_COMPILER_PREDEFINES=OFF
         ninja
 
         mkdir -p /ucrt64/bin/pulseview-bundle
@@ -123,3 +124,4 @@ jobs:
       with:
         name: pulseview-fnirsi-dla16-win64
         path: /ucrt64/bin/pulseview-bundle/
+        
