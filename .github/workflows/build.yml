@@ -59,9 +59,28 @@ jobs:
         make -j$(nproc)
         make install
 
-        # Проверяем, что libsigrokcxx действительно установлен
         if [ ! -f /ucrt64/lib/pkgconfig/libsigrokcxx.pc ]; then
           echo "libsigrokcxx.pc не найден! Сборка C++ биндингов провалилась."
+          exit 1
+        fi
+
+    - name: Build libsigrokdecode
+      run: |
+        git clone https://github.com/sigrokproject/libsigrokdecode.git
+        cd libsigrokdecode
+
+        if [ -x ./configure ]; then
+          echo "configure уже есть, пропускаем autogen"
+        else
+          ./autogen.sh
+        fi
+
+        ./configure --prefix=/ucrt64
+        make -j$(nproc)
+        make install
+
+        if [ ! -f /ucrt64/lib/pkgconfig/libsigrokdecode.pc ]; then
+          echo "libsigrokdecode.pc не найден! Сборка провалилась."
           exit 1
         fi
 
@@ -85,6 +104,7 @@ jobs:
 
         cp /ucrt64/bin/libsigrok*.dll        . || true
         cp /ucrt64/bin/libsigrokcxx*.dll     . || true
+        cp /ucrt64/bin/libsigrokdecode*.dll  . || true
         cp /ucrt64/bin/libusb*.dll           . || true
         cp /ucrt64/bin/libglib*.dll          . || true
         cp /ucrt64/bin/libgobject*.dll       . || true
