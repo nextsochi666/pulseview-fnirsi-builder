@@ -133,8 +133,12 @@ jobs:
         cp /ucrt64/bin/Qt5Svg.dll            . || true
         cp /ucrt64/share/qt5/plugins/platforms/qwindows.dll . || true
 
+        # Копируем в рабочую директорию для upload-artifact
+        mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
+        cp -r /ucrt64/bin/pulseview-bundle/* "$GITHUB_WORKSPACE/pulseview-artifact/"
+
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
       with:
         name: pulseview-fnirsi-dla16-win64
-        path: /ucrt64/bin/pulseview-bundle/
+        path: pulseview-artifact/
