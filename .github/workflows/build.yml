@@ -66,7 +66,7 @@ jobs:
           exit 1
         fi
 
-    - name: Build libsigrokdecode (with Python)
+    - name: Build libsigrokdecode (with static Python)
       run: |
         git clone https://github.com/sigrokproject/libsigrokdecode.git
         cd libsigrokdecode
@@ -77,8 +77,13 @@ jobs:
           ./autogen.sh
         fi
 
-        # Оставляем Python включенным, чтобы работали декодеры
-        ./configure --prefix=/ucrt64
+        # Указываем configure, что Python нужно встроить (статически)
+        # и жестко прописываем пути к библиотекам внутри MSYS2
+        ./configure --prefix=/ucrt64 \
+            PYTHON_CPPFLAGS="-I/ucrt64/include/python3.14" \
+            PYTHON_LDFLAGS="-L/ucrt64/lib -lpython3.14" \
+            --enable-static
+            
         make -j$(nproc)
         make install
 
@@ -122,6 +127,7 @@ jobs:
           "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true
         fi
 
+        # Копируем все нужные DLL
         cp /ucrt64/bin/libsigrok*.dll        . || true
         cp /ucrt64/bin/libsigrokcxx*.dll     . || true
         cp /ucrt64/bin/libsigrokdecode*.dll  . || true
@@ -155,17 +161,9 @@ jobs:
         mkdir -p imageformats
         cp /ucrt64/share/qt5/plugins/imageformats/qsvg.dll imageformats/ || true
 
-        # Копируем стандартную библиотеку Python
-        mkdir -p python_lib
-        cp -r /ucrt64/lib/python3.14/* python_lib/ || true
-        
-        # Копируем сами декодеры (на всякий случай, если они не встроились в dll)
+        # Копируем декодеры
         mkdir -p decoders
         cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
-
-        # Создаем bat-файл для запуска с правильным PYTHONHOME
-        echo "set PYTHONHOME=%~dp0python_lib" > run_pulseview.bat
-        echo "start pulseview.exe" >> run_pulseview.bat
 
         echo "=== Итоговое содержимое артефакта ==="
         ls -la
