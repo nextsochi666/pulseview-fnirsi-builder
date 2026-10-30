@@ -106,6 +106,7 @@ jobs:
     - name: Collect dependencies
       run: |
         cd /ucrt64/bin/pulseview-bundle
+        export PATH="/ucrt64/bin:$PATH"
         windeployqt pulseview.exe || windeployqt *.exe
 
         cp /ucrt64/bin/libsigrok*.dll        . || true
