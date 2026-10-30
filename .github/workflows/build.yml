@@ -66,7 +66,7 @@ jobs:
           exit 1
         fi
 
-    - name: Build libsigrokdecode
+    - name: Build libsigrokdecode (with Python)
       run: |
         git clone https://github.com/sigrokproject/libsigrokdecode.git
         cd libsigrokdecode
@@ -77,6 +77,7 @@ jobs:
           ./autogen.sh
         fi
 
+        # Оставляем Python включенным, чтобы работали декодеры
         ./configure --prefix=/ucrt64
         make -j$(nproc)
         make install
@@ -102,11 +103,9 @@ jobs:
 
     - name: Collect dependencies
       run: |
-        # Создаем финальную папку прямо в рабочей директории репозитория
         mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
         cd "$GITHUB_WORKSPACE/pulseview-artifact"
         
-        # Ищем pulseview.exe во всей рабочей директории (где склонирован репозиторий)
         echo "=== Поиск pulseview.exe ==="
         PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
         
@@ -118,13 +117,11 @@ jobs:
           exit 1
         fi
 
-        # Запускаем windeployqt в этой же папке
         WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
         if [ -n "$WINDEPLOYQT" ]; then
           "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true
         fi
 
-        # Копируем библиотеки
         cp /ucrt64/bin/libsigrok*.dll        . || true
         cp /ucrt64/bin/libsigrokcxx*.dll     . || true
         cp /ucrt64/bin/libsigrokdecode*.dll  . || true
@@ -141,13 +138,34 @@ jobs:
         cp /ucrt64/bin/libsigc*.dll          . || true
         cp /ucrt64/bin/Qt5Svg.dll            . || true
         
-        # Плагины Qt (обязательно)
+        cp /ucrt64/bin/zlib1.dll             . || true
+        cp /ucrt64/bin/libicuin*.dll         . || true
+        cp /ucrt64/bin/libicuuc*.dll         . || true
+        cp /ucrt64/bin/libicudt*.dll         . || true
+        cp /ucrt64/bin/libdouble-conversion.dll . || true
+        cp /ucrt64/bin/libpython*.dll        . || true
+        
         mkdir -p platforms
-        cp /ucrt64/share/qt5/plugins/platforms/qwindows.dll platforms/ || true
+        QWINDOWS=$(find /ucrt64 -name "qwindows.dll" 2>/dev/null | head -n 1)
+        if [ -n "$QWINDOWS" ]; then
+          cp "$QWINDOWS" platforms/
+        fi
         mkdir -p styles
         cp /ucrt64/share/qt5/plugins/styles/*.dll styles/ || true
         mkdir -p imageformats
         cp /ucrt64/share/qt5/plugins/imageformats/qsvg.dll imageformats/ || true
+
+        # Копируем стандартную библиотеку Python
+        mkdir -p python_lib
+        cp -r /ucrt64/lib/python3.14/* python_lib/ || true
+        
+        # Копируем сами декодеры (на всякий случай, если они не встроились в dll)
+        mkdir -p decoders
+        cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
+
+        # Создаем bat-файл для запуска с правильным PYTHONHOME
+        echo "set PYTHONHOME=%~dp0python_lib" > run_pulseview.bat
+        echo "start pulseview.exe" >> run_pulseview.bat
 
         echo "=== Итоговое содержимое артефакта ==="
         ls -la
