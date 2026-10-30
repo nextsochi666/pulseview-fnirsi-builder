@@ -111,7 +111,7 @@ jobs:
         
         if [ -n "$WINDEPLOYQT" ]; then
           echo "Найден windeployqt: $WINDEPLOYQT"
-          "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || "$WINDEPLOYQT" --no-opengl-sw *.exe
+          "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || "$WINDEPLOYQT" --no-opengl-sw *.exe || true
         else
           echo "windeployqt не найден в /ucrt64/bin, пропускаем автоматический деплой"
         fi
