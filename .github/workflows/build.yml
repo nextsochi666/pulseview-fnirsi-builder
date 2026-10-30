@@ -106,8 +106,15 @@ jobs:
     - name: Collect dependencies
       run: |
         cd /ucrt64/bin/pulseview-bundle
-        export PATH="/ucrt64/bin:$PATH"
-        windeployqt pulseview.exe || windeployqt *.exe
+        
+        WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
+        
+        if [ -n "$WINDEPLOYQT" ]; then
+          echo "Найден windeployqt: $WINDEPLOYQT"
+          "$WINDEPLOYQT" pulseview.exe || "$WINDEPLOYQT" *.exe
+        else
+          echo "windeployqt не найден в /ucrt64/bin, пропускаем автоматический деплой"
+        fi
 
         cp /ucrt64/bin/libsigrok*.dll        . || true
         cp /ucrt64/bin/libsigrokcxx*.dll     . || true
@@ -124,6 +131,7 @@ jobs:
         cp /ucrt64/bin/libglibmm*.dll        . || true
         cp /ucrt64/bin/libsigc*.dll          . || true
         cp /ucrt64/bin/Qt5Svg.dll            . || true
+        cp /ucrt64/share/qt5/plugins/platforms/qwindows.dll . || true
 
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
