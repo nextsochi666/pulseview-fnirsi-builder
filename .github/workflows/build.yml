@@ -100,34 +100,31 @@ jobs:
           -DCMAKE_CXX_FLAGS="-I/ucrt64/include -I/ucrt64/include/glibmm-2.4 -I/ucrt64/lib/glibmm-2.4/include -I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include -I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include"
         ninja
 
+    - name: Collect dependencies
+      run: |
+        # Создаем финальную папку прямо в рабочей директории репозитория
+        mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
+        cd "$GITHUB_WORKSPACE/pulseview-artifact"
+        
+        # Ищем pulseview.exe во всей рабочей директории (где склонирован репозиторий)
         echo "=== Поиск pulseview.exe ==="
-        PV_EXE=$(find /d/a/pulseview-fnirsi-builder/pulseview-fnirsi-builder/pulseview/build -name "pulseview.exe" -type f | head -n 1)
+        PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
+        
         if [ -n "$PV_EXE" ]; then
           echo "Найден: $PV_EXE"
-          mkdir -p /ucrt64/bin/pulseview-bundle
-          cp "$PV_EXE" /ucrt64/bin/pulseview-bundle/
-          echo "Скопирован в /ucrt64/bin/pulseview-bundle/"
-          ls -la /ucrt64/bin/pulseview-bundle/
+          cp "$PV_EXE" .
         else
           echo "pulseview.exe НЕ НАЙДЕН!"
-          echo "=== Все exe в build ==="
-          find /d/a/pulseview-fnirsi-builder/pulseview-fnirsi-builder/pulseview/build -name "*.exe" -type f || echo "EXE нет"
           exit 1
         fi
 
-    - name: Collect dependencies
-      run: |
-        cd /ucrt64/bin/pulseview-bundle
-        
+        # Запускаем windeployqt в этой же папке
         WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
-        
         if [ -n "$WINDEPLOYQT" ]; then
-          echo "Найден windeployqt: $WINDEPLOYQT"
-          "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || "$WINDEPLOYQT" --no-opengl-sw *.exe || true
-        else
-          echo "windeployqt не найден в /ucrt64/bin, пропускаем автоматический деплой"
+          "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true
         fi
 
+        # Копируем библиотеки
         cp /ucrt64/bin/libsigrok*.dll        . || true
         cp /ucrt64/bin/libsigrokcxx*.dll     . || true
         cp /ucrt64/bin/libsigrokdecode*.dll  . || true
@@ -143,10 +140,17 @@ jobs:
         cp /ucrt64/bin/libglibmm*.dll        . || true
         cp /ucrt64/bin/libsigc*.dll          . || true
         cp /ucrt64/bin/Qt5Svg.dll            . || true
-        cp /ucrt64/share/qt5/plugins/platforms/qwindows.dll . || true
+        
+        # Плагины Qt (обязательно)
+        mkdir -p platforms
+        cp /ucrt64/share/qt5/plugins/platforms/qwindows.dll platforms/ || true
+        mkdir -p styles
+        cp /ucrt64/share/qt5/plugins/styles/*.dll styles/ || true
+        mkdir -p imageformats
+        cp /ucrt64/share/qt5/plugins/imageformats/qsvg.dll imageformats/ || true
 
-        mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
-        cp -r /ucrt64/bin/pulseview-bundle/* "$GITHUB_WORKSPACE/pulseview-artifact/"
+        echo "=== Итоговое содержимое артефакта ==="
+        ls -la
 
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
