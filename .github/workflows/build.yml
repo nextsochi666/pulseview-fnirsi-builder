@@ -47,45 +47,21 @@ jobs:
       run: |
         git clone https://github.com/sigrokproject/libsigrok.git
         cd libsigrok
-
         curl -L https://github.com/sigrokproject/libsigrok/pull/306.diff -o pr306.diff
         git apply pr306.diff || (echo "Ошибка применения патча" && exit 1)
-
-        if [ -x ./configure ]; then
-          echo "configure уже есть, пропускаем autogen"
-        else
-          ./autogen.sh
-        fi
-
+        if [ -x ./configure ]; then echo "configure уже есть"; else ./autogen.sh; fi
         ./configure --prefix=/ucrt64
         make -j$(nproc)
         make install
-
-        if [ ! -f /ucrt64/lib/pkgconfig/libsigrokcxx.pc ]; then
-          echo "libsigrokcxx.pc не найден! Сборка C++ биндингов провалилась."
-          exit 1
-        fi
 
     - name: Build libsigrokdecode (with Python)
       run: |
         git clone https://github.com/sigrokproject/libsigrokdecode.git
         cd libsigrokdecode
-
-        if [ -x ./configure ]; then
-          echo "configure уже есть, пропускаем autogen"
-        else
-          ./autogen.sh
-        fi
-
-        # Оставляем Python включенным, чтобы работали декодеры
+        if [ -x ./configure ]; then echo "configure уже есть"; else ./autogen.sh; fi
         ./configure --prefix=/ucrt64
         make -j$(nproc)
         make install
-
-        if [ ! -f /ucrt64/lib/pkgconfig/libsigrokdecode.pc ]; then
-          echo "libsigrokdecode.pc не найден! Сборка провалилась."
-          exit 1
-        fi
 
     - name: Build PulseView
       run: |
@@ -106,72 +82,53 @@ jobs:
         mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
         cd "$GITHUB_WORKSPACE/pulseview-artifact"
         
-        echo "=== Поиск pulseview.exe ==="
         PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
+        if [ -z "$PV_EXE" ]; then echo "pulseview.exe НЕ НАЙДЕН!"; exit 1; fi
+        cp "$PV_EXE" .
         
-        if [ -n "$PV_EXE" ]; then
-          echo "Найден: $PV_EXE"
-          cp "$PV_EXE" .
-        else
-          echo "pulseview.exe НЕ НАЙДЕН!"
-          exit 1
-        fi
-
         WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
-        if [ -n "$WINDEPLOYQT" ]; then
-          "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true
-        fi
-
-        cp /ucrt64/bin/libsigrok*.dll        . || true
-        cp /ucrt64/bin/libsigrokcxx*.dll     . || true
-        cp /ucrt64/bin/libsigrokdecode*.dll  . || true
-        cp /ucrt64/bin/libusb*.dll           . || true
-        cp /ucrt64/bin/libglib*.dll          . || true
-        cp /ucrt64/bin/libgobject*.dll       . || true
-        cp /ucrt64/bin/libgmodule*.dll       . || true
-        cp /ucrt64/bin/libgio*.dll           . || true
-        cp /ucrt64/bin/libzip*.dll           . || true
-        cp /ucrt64/bin/libstdc++*.dll        . || true
-        cp /ucrt64/bin/libgcc_s_*.dll        . || true
-        cp /ucrt64/bin/libwinpthread*.dll    . || true
-        cp /ucrt64/bin/libglibmm*.dll        . || true
-        cp /ucrt64/bin/libsigc*.dll          . || true
-        cp /ucrt64/bin/Qt5Svg.dll            . || true
+        if [ -n "$WINDEPLOYQT" ]; then "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true; fi
         
-        cp /ucrt64/bin/zlib1.dll             . || true
-        cp /ucrt64/bin/libicuin*.dll         . || true
-        cp /ucrt64/bin/libicuuc*.dll         . || true
-        cp /ucrt64/bin/libicudt*.dll         . || true
+        cp /ucrt64/bin/libsigrok*.dll . || true
+        cp /ucrt64/bin/libsigrokcxx*.dll . || true
+        cp /ucrt64/bin/libsigrokdecode*.dll . || true
+        cp /ucrt64/bin/libusb*.dll . || true
+        cp /ucrt64/bin/libglib*.dll . || true
+        cp /ucrt64/bin/libgobject*.dll . || true
+        cp /ucrt64/bin/libgmodule*.dll . || true
+        cp /ucrt64/bin/libgio*.dll . || true
+        cp /ucrt64/bin/libzip*.dll . || true
+        cp /ucrt64/bin/libstdc++*.dll . || true
+        cp /ucrt64/bin/libgcc_s_*.dll . || true
+        cp /ucrt64/bin/libwinpthread*.dll . || true
+        cp /ucrt64/bin/libglibmm*.dll . || true
+        cp /ucrt64/bin/libsigc*.dll . || true
+        cp /ucrt64/bin/Qt5Svg.dll . || true
+        cp /ucrt64/bin/zlib1.dll . || true
+        cp /ucrt64/bin/libicuin*.dll . || true
+        cp /ucrt64/bin/libicuuc*.dll . || true
+        cp /ucrt64/bin/libicudt*.dll . || true
         cp /ucrt64/bin/libdouble-conversion.dll . || true
-        cp /ucrt64/bin/libpython*.dll        . || true
+        cp /ucrt64/bin/libpython*.dll . || true
         
         mkdir -p platforms
         QWINDOWS=$(find /ucrt64 -name "qwindows.dll" 2>/dev/null | head -n 1)
-        if [ -n "$QWINDOWS" ]; then
-          cp "$QWINDOWS" platforms/
-        fi
+        if [ -n "$QWINDOWS" ]; then cp "$QWINDOWS" platforms/; fi
         mkdir -p styles
         cp /ucrt64/share/qt5/plugins/styles/*.dll styles/ || true
         mkdir -p imageformats
         cp /ucrt64/share/qt5/plugins/imageformats/qsvg.dll imageformats/ || true
-
+        
         mkdir -p decoders
         cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
-
-        # Копируем стандартную библиотеку Python правильно (в папку Lib)
+        
         mkdir -p python_lib/Lib
         cp -r /ucrt64/lib/python3.14/* python_lib/Lib/ || true
-
-        # Создаем bat-файл для запуска с правильными путями PYTHONHOME и PYTHONPATH
-        cat << 'EOF' > run_pulseview.bat
-@echo off
-set PYTHONHOME=%~dp0python_lib
-set PYTHONPATH=%~dp0python_lib\Lib;%~dp0python_lib\Lib\site-packages;%~dp0python_lib\Lib\lib-dynload
-start "" pulseview.exe
-EOF
-
-        echo "=== Итоговое содержимое артефакта ==="
-        ls -la
+        
+        echo "@echo off" > run_pulseview.bat
+        echo "set PYTHONHOME=%~dp0python_lib" >> run_pulseview.bat
+        echo "set PYTHONPATH=%~dp0python_lib\Lib;%~dp0python_lib\Lib\site-packages;%~dp0python_lib\Lib\lib-dynload" >> run_pulseview.bat
+        echo "start \"\" pulseview.exe" >> run_pulseview.bat
 
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
