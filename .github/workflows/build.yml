@@ -65,10 +65,13 @@ jobs:
 
       - name: Install Windows dependencies via vcpkg
         shell: cmd
-        run: scripts\install_msvc_dlls.cmd
+        working-directory: ${{ github.workspace }}
+        run: |
+          scripts\install_msvc_dlls.cmd
 
       - name: Configure and build USB shim first
         shell: cmd
+        working-directory: ${{ github.workspace }}
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64
           cmake --build build --config Release --target bridge_usb
@@ -85,6 +88,7 @@ jobs:
 
       - name: Build final bridge
         shell: cmd
+        working-directory: ${{ github.workspace }}
         run: |
           cmake -S . -B build -G "Visual Studio 17 2022" -A x64
           cmake --build build --config Release
