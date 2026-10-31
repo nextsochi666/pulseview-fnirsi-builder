@@ -74,21 +74,32 @@ jobs:
           -DCMAKE_AUTOMOC_COMPILER_PREDEFINES=OFF \
           -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON \
           -DENABLE_SIGNALS=OFF \
-          -DCMAKE_CXX_FLAGS="-I/ucrt64/include -I/ucrt64/include/glibmm-2.4 -I/ucrt64/lib/glibmm-2.4/include -I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include -I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include"
+          -DCMAKE_CXX_FLAGS="-I/ucrt64/include -I/ucrt64/include/glibmm-2.4 -I/ucrt64/lib/glibmm-2.4/include -I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include -I/ucrt64/include/glib-2.0 -I/ucrt64/include -I/ucrt64/include/qt5 -I/ucrt64/include/qt5/QtWidgets -I/ucrt64/include/qt5/QtGui -I/ucrt64/include/qt5/QtCore -I/ucrt64/include/qt5/QtSvg" \
+          -DCMAKE_EXE_LINKER_FLAGS="-L/ucrt64/lib -L/ucrt64/lib/qt5"
         ninja
 
-    - name: Collect dependencies
+    - name: Bundle all runtime dependencies
       run: |
+        set -eux
         mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
         cd "$GITHUB_WORKSPACE/pulseview-artifact"
-        
+
         PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
-        if [ -z "$PV_EXE" ]; then echo "pulseview.exe НЕ НАЙДЕН!"; exit 1; fi
+        if [ -z "$PV_EXE" ]; then
+          echo "pulseview.exe not found"
+          exit 1
+        fi
+
         cp "$PV_EXE" .
-        
+
+        # Qt runtime + plugins
         WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
-        if [ -n "$WINDEPLOYQT" ]; then "$WINDEPLOYQT" --no-opengl-sw pulseview.exe || true; fi
-        
+        if [ -n "$WINDEPLOYQT" ]; then
+          "$WINDEPLOYQT" --no-opengl-sw --no-translations --no-compiler-runtime pulseview.exe || true
+        fi
+
+        # copy required libs
+        cp /ucrt64/bin/*.dll . || true
         cp /ucrt64/bin/libsigrok*.dll . || true
         cp /ucrt64/bin/libsigrokcxx*.dll . || true
         cp /ucrt64/bin/libsigrokdecode*.dll . || true
@@ -103,32 +114,49 @@ jobs:
         cp /ucrt64/bin/libwinpthread*.dll . || true
         cp /ucrt64/bin/libglibmm*.dll . || true
         cp /ucrt64/bin/libsigc*.dll . || true
-        cp /ucrt64/bin/Qt5Svg.dll . || true
+        cp /ucrt64/bin/Qt5*.dll . || true
         cp /ucrt64/bin/zlib1.dll . || true
         cp /ucrt64/bin/libicuin*.dll . || true
         cp /ucrt64/bin/libicuuc*.dll . || true
         cp /ucrt64/bin/libicudt*.dll . || true
         cp /ucrt64/bin/libdouble-conversion.dll . || true
         cp /ucrt64/bin/libpython*.dll . || true
-        
+
+        # Qt plugin folders
         mkdir -p platforms
         QWINDOWS=$(find /ucrt64 -name "qwindows.dll" 2>/dev/null | head -n 1)
         if [ -n "$QWINDOWS" ]; then cp "$QWINDOWS" platforms/; fi
+
         mkdir -p styles
         cp /ucrt64/share/qt5/plugins/styles/*.dll styles/ || true
+
         mkdir -p imageformats
-        cp /ucrt64/share/qt5/plugins/imageformats/qsvg.dll imageformats/ || true
-        
+        cp /ucrt64/share/qt5/plugins/imageformats/*.dll imageformats/ || true
+
+        # sigrok decoders
         mkdir -p decoders
         cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
-        
+
+        # Python runtime bundle
+        rm -rf python_lib
         mkdir -p python_lib/Lib
         cp -r /ucrt64/lib/python3.14/* python_lib/Lib/ || true
-        
-        echo "@echo off" > run_pulseview.bat
-        echo "set PYTHONHOME=%~dp0python_lib" >> run_pulseview.bat
-        echo "set PYTHONPATH=%~dp0python_lib\Lib;%~dp0python_lib\Lib\site-packages;%~dp0python_lib\Lib\lib-dynload" >> run_pulseview.bat
-        echo "start \"\" pulseview.exe" >> run_pulseview.bat
+
+        # launcher for Windows
+        cat > run_pulseview.bat <<'EOF'
+@echo off
+setlocal
+set "BASE=%~dp0"
+set "PATH=%BASE%;%PATH%"
+set "PYTHONHOME=%BASE%\python_lib"
+set "PYTHONPATH=%BASE%\python_lib\Lib;%BASE%\python_lib\Lib\site-packages;%BASE%\python_lib\Lib\lib-dynload"
+set "QT_QPA_PLATFORM_PLUGIN_PATH=%BASE%\platforms"
+set "QT_PLUGIN_PATH=%BASE%\styles;%BASE%\imageformats"
+"%BASE%\pulseview.exe"
+exit /b %errorlevel%
+EOF
+
+        ls -la
 
     - name: Upload PulseView artifact
       uses: actions/upload-artifact@v4
