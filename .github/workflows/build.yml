@@ -64,10 +64,12 @@ jobs:
             mingw-w64-ucrt-x86_64-ntldd
 
       - name: Install Windows dependencies via vcpkg
-        shell: cmd
+        shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          scripts\install_msvc_dlls.cmd
+          Get-ChildItem
+          Get-ChildItem .\scripts
+          .\scripts\install_msvc_dlls.cmd
 
       - name: Configure and build USB shim first
         shell: cmd
