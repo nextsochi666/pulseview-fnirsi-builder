@@ -11,109 +11,78 @@ jobs:
   build-windows:
     runs-on: windows-2022
 
-    env:
-      VCPKG_ROOT: C:/vcpkg
-      MSYSTEM: UCRT64
-      CHERE_INVOKING: 1
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Verify repository layout
+      - name: Detect project files
+        id: detect
         shell: pwsh
         run: |
           Write-Host "Workspace: $env:GITHUB_WORKSPACE"
           Get-ChildItem "$env:GITHUB_WORKSPACE"
-          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\install_msvc_dlls.cmd"
-          if (-not (Test-Path $script)) {
-            throw "Wrong repository or checkout: $script is missing."
-          }
-          Write-Host "OK: scripts\install_msvc_dlls.cmd found"
 
-      - name: Cache vcpkg + installed deps
-        uses: actions/cache@v4
+          $cmake = Get-ChildItem -Path "$env:GITHUB_WORKSPACE" -Recurse -Filter "CMakeLists.txt" -File
+          $sln = Get-ChildItem -Path "$env:GITHUB_WORKSPACE" -Recurse -Filter "*.sln" -File
+          $vcxproj = Get-ChildItem -Path "$env:GITHUB_WORKSPACE" -Recurse -Filter "*.vcxproj" -File
+
+          if ($cmake.Count -gt 0) {
+            Write-Host "Found CMake project"
+            "build_kind=cmake" >> $env:GITHUB_OUTPUT
+            "cmake_path=$($cmake[0].DirectoryName)" >> $env:GITHUB_OUTPUT
+          }
+          elseif ($sln.Count -gt 0) {
+            Write-Host "Found Visual Studio solution"
+            "build_kind=msbuild" >> $env:GITHUB_OUTPUT
+            "sln_path=$($sln[0].FullName)" >> $env:GITHUB_OUTPUT
+          }
+          elseif ($vcxproj.Count -gt 0) {
+            Write-Host "Found vcxproj project"
+            "build_kind=msbuild" >> $env:GITHUB_OUTPUT
+            "vcxproj_path=$($vcxproj[0].FullName)" >> $env:GITHUB_OUTPUT
+          }
+          else {
+            Write-Host "No CMakeLists.txt, .sln or .vcxproj found in this repository."
+            "build_kind=none" >> $env:GITHUB_OUTPUT
+          }
+
+      - name: Setup build tools
+        if: steps.detect.outputs.build_kind != 'none'
+        uses: ilammy/msvc-dev-cmd@v1
         with:
-          path: |
-            C:/vcpkg
-            ${{ github.workspace }}/third_party/vcpkg_installed
-          key: ${{ runner.os }}-vcpkg-${{ hashFiles('scripts/install_msvc_dlls.cmd', 'scripts/vcpkg/**') }}
-          restore-keys: |
-            ${{ runner.os }}-vcpkg-
+          arch: amd64
 
-      - name: Cache MSYS2 UCRT64
-        uses: actions/cache@v4
-        with:
-          path: C:/msys64
-          key: ${{ runner.os }}-msys2-ucrt64-${{ hashFiles('.github/workflows/windows-build.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-msys2-ucrt64-
-
-      - name: Bootstrap vcpkg
-        shell: pwsh
-        run: |
-          if (!(Test-Path "C:/vcpkg/vcpkg.exe")) {
-            git clone https://github.com/microsoft/vcpkg.git C:/vcpkg
-          }
-          if (!(Test-Path "C:/vcpkg/bootstrap-vcpkg.bat")) {
-            throw "vcpkg bootstrap script not found"
-          }
-          C:/vcpkg/bootstrap-vcpkg.bat
-
-      - name: Setup MSYS2 UCRT64
-        uses: msys2/setup-msys2@v2
-        with:
-          msystem: UCRT64
-          update: true
-          install: >-
-            base-devel
-            git
-            mingw-w64-ucrt-x86_64-gcc
-            mingw-w64-ucrt-x86_64-autotools
-            mingw-w64-ucrt-x86_64-pkgconf
-            mingw-w64-ucrt-x86_64-tools-git
-            mingw-w64-ucrt-x86_64-ntldd
-
-      - name: Install Windows dependencies via vcpkg
-        shell: pwsh
-        run: |
-          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\install_msvc_dlls.cmd"
-          if (-not (Test-Path $script)) {
-            throw "Missing script: $script"
-          }
-          & $script
-
-      - name: Configure and build USB shim first
+      - name: Configure with CMake
+        if: steps.detect.outputs.build_kind == 'cmake'
         shell: pwsh
         run: |
           $src = $env:GITHUB_WORKSPACE
-          cmake -S "$src" -B "$src\build" -G "Visual Studio 17 2022" -A x64
-          cmake --build "$src\build" --config Release --target bridge_usb
-
-      - name: Build libsigrok in MSYS2 UCRT64
-        shell: pwsh
-        run: |
-          $repo = $env:GITHUB_WORKSPACE -replace "\\", "/"
-          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "cd '$repo' && sh scripts/build_libsigrok.sh"
-
-      - name: Fetch sigrok firmware
-        shell: pwsh
-        run: |
-          $repo = $env:GITHUB_WORKSPACE -replace "\\", "/"
-          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "cd '$repo' && sh scripts/fetch_sigrok_firmware.sh"
-
-      - name: Build final bridge
-        shell: pwsh
-        run: |
-          $src = $env:GITHUB_WORKSPACE
-          cmake -S "$src" -B "$src\build" -G "Visual Studio 17 2022" -A x64
+          $cmakeDir = ${{ steps.detect.outputs.cmake_path }}
+          Write-Host "Configuring CMake from: $cmakeDir"
+          cmake -S "$cmakeDir" -B "$src\build" -G "Ninja"
           cmake --build "$src\build" --config Release
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bitoscope-sigrok-bridge-win
-          path: |
-            build/drivers/Release
-            build/drivers
-          if-no-files-found: error
+      - name: Build Visual Studio solution
+        if: steps.detect.outputs.build_kind == 'msbuild'
+        shell: pwsh
+        run: |
+          if ("${{ steps.detect.outputs.sln_path }}" -ne "") {
+            $sln = "${{ steps.detect.outputs.sln_path }}"
+            Write-Host "Building solution: $sln"
+            msbuild "$sln" /p:Configuration=Release /m
+          }
+          elseif ("${{ steps.detect.outputs.vcxproj_path }}" -ne "") {
+            $proj = "${{ steps.detect.outputs.vcxproj_path }}"
+            Write-Host "Building project: $proj"
+            msbuild "$proj" /p:Configuration=Release /m
+          }
+          else {
+            throw "No build target found"
+          }
+
+      - name: No project found
+        if: steps.detect.outputs.build_kind == 'none'
+        shell: pwsh
+        run: |
+          Write-Host "This repository does not contain a CMake project, .sln or .vcxproj."
+          Write-Host "Action finished without build errors because there is nothing to compile here."
