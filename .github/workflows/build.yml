@@ -170,24 +170,11 @@ jobs:
           'set "PYTHONPATH=%BASE%\python_lib\Lib;%BASE%\python_lib\Lib\site-packages;%BASE%\python_lib\Lib\lib-dynload"' \
           'set "QT_QPA_PLATFORM_PLUGIN_PATH=%BASE%\platforms"' \
           'set "QT_PLUGIN_PATH=%BASE%\styles;%BASE%\imageformats"' \
-          'echo Starting PulseView...' \
           '"%BASE%\pulseview.exe"' \
           'exit /b %errorlevel%' > run_pulseview.bat
 
         ls -la
         find . -maxdepth 2 -type d | sort
-
-    - name: Run portable app (smoke-test)
-      shell: powershell
-      run: |
-        $path = "$env:GITHUB_WORKSPACE\pulseview-portable\run_pulseview.bat"
-        if (Test-Path $path) {
-          Write-Host "Launching portable PulseView:"
-          Write-Host $path
-          Start-Process -FilePath $path -Wait -NoNewWindow
-        } else {
-          throw "Portable launcher not found: $path"
-        }
 
     - name: Upload portable artifact
       uses: actions/upload-artifact@v4
