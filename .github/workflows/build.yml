@@ -1,4 +1,4 @@
-name: Windows build (cached)
+name: Windows build
 
 on:
   workflow_dispatch:
@@ -19,6 +19,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Verify repository layout
+        shell: pwsh
+        run: |
+          Write-Host "Workspace: $env:GITHUB_WORKSPACE"
+          Get-ChildItem "$env:GITHUB_WORKSPACE"
+          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\install_msvc_dlls.cmd"
+          if (-not (Test-Path $script)) {
+            throw "Wrong repository or checkout: $script is missing."
+          }
+          Write-Host "OK: scripts\install_msvc_dlls.cmd found"
 
       - name: Cache vcpkg + installed deps
         uses: actions/cache@v4
@@ -65,39 +76,44 @@ jobs:
 
       - name: Install Windows dependencies via vcpkg
         shell: pwsh
-        working-directory: ${{ github.workspace }}
         run: |
-          Get-ChildItem
-          Get-ChildItem .\scripts
-          .\scripts\install_msvc_dlls.cmd
+          $script = Join-Path $env:GITHUB_WORKSPACE "scripts\install_msvc_dlls.cmd"
+          if (-not (Test-Path $script)) {
+            throw "Missing script: $script"
+          }
+          & $script
 
       - name: Configure and build USB shim first
-        shell: cmd
-        working-directory: ${{ github.workspace }}
+        shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          cmake --build build --config Release --target bridge_usb
+          $src = $env:GITHUB_WORKSPACE
+          cmake -S "$src" -B "$src\build" -G "Visual Studio 17 2022" -A x64
+          cmake --build "$src\build" --config Release --target bridge_usb
 
       - name: Build libsigrok in MSYS2 UCRT64
         shell: pwsh
         run: |
-          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "sh scripts/build_libsigrok.sh"
+          $repo = $env:GITHUB_WORKSPACE -replace "\\", "/"
+          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "cd '$repo' && sh scripts/build_libsigrok.sh"
 
       - name: Fetch sigrok firmware
         shell: pwsh
         run: |
-          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "sh scripts/fetch_sigrok_firmware.sh"
+          $repo = $env:GITHUB_WORKSPACE -replace "\\", "/"
+          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "cd '$repo' && sh scripts/fetch_sigrok_firmware.sh"
 
       - name: Build final bridge
-        shell: cmd
-        working-directory: ${{ github.workspace }}
+        shell: pwsh
         run: |
-          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-          cmake --build build --config Release
+          $src = $env:GITHUB_WORKSPACE
+          cmake -S "$src" -B "$src\build" -G "Visual Studio 17 2022" -A x64
+          cmake --build "$src\build" --config Release
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: bitoscope-sigrok-bridge-win
-          path: build/drivers/Release
+          path: |
+            build/drivers/Release
+            build/drivers
           if-no-files-found: error
