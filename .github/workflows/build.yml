@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-windows:
+  build-windows-portable:
     runs-on: windows-latest
     defaults:
       run:
@@ -70,7 +70,14 @@ jobs:
         mkdir build && cd build
 
         export PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig:$PKG_CONFIG_PATH
-        export CFLAGS="-I/ucrt64/include -I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include -I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include -I/ucrt64/include/libusb-1.0 -I/ucrt64/include/qt5 -I/ucrt64/include/qt5/QtWidgets -I/ucrt64/include/qt5/QtGui -I/ucrt64/include/qt5/QtCore -I/ucrt64/include/qt5/QtSvg"
+
+        export GLIB_CFLAGS="-I/ucrt64/include -I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include"
+        export GLIBMM_CFLAGS="-I/ucrt64/include/glibmm-2.4 -I/ucrt64/lib/glibmm-2.4/include"
+        export SIGC_CFLAGS="-I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include"
+        export USB_CFLAGS="-I/ucrt64/include/libusb-1.0"
+        export QT_CFLAGS="-I/ucrt64/include/qt5 -I/ucrt64/include/qt5/QtWidgets -I/ucrt64/include/qt5/QtGui -I/ucrt64/include/qt5/QtCore -I/ucrt64/include/qt5/QtSvg"
+
+        export CFLAGS="$GLIB_CFLAGS $GLIBMM_CFLAGS $SIGC_CFLAGS $USB_CFLAGS $QT_CFLAGS -I/ucrt64/include/python3.14"
         export CXXFLAGS="$CFLAGS"
         export CPPFLAGS="$CFLAGS"
 
@@ -82,14 +89,18 @@ jobs:
           -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON \
           -DENABLE_SIGNALS=OFF \
           -DQt5_DIR=/ucrt64/lib/cmake/Qt5 \
-          -DPython3_ROOT_DIR=/ucrt64
+          -DPython3_ROOT_DIR=/ucrt64 \
+          -DCMAKE_C_FLAGS="$CFLAGS" \
+          -DCMAKE_CXX_FLAGS="$CFLAGS"
+
         ninja
 
-    - name: Bundle all runtime dependencies
+    - name: Create portable app folder
       run: |
         set -eux
-        mkdir -p "$GITHUB_WORKSPACE/pulseview-artifact"
-        cd "$GITHUB_WORKSPACE/pulseview-artifact"
+
+        mkdir -p "$GITHUB_WORKSPACE/pulseview-portable"
+        cd "$GITHUB_WORKSPACE/pulseview-portable"
 
         PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
         if [ -z "$PV_EXE" ]; then
@@ -99,13 +110,13 @@ jobs:
 
         cp "$PV_EXE" .
 
-        # Qt runtime + plugins
+        # Qt deploy
         WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
         if [ -n "$WINDEPLOYQT" ]; then
           "$WINDEPLOYQT" --no-opengl-sw --no-translations --no-compiler-runtime pulseview.exe || true
         fi
 
-        # Copy DLL dependencies
+        # runtime DLLs
         cp /ucrt64/bin/*.dll . || true
         cp /ucrt64/bin/libsigrok*.dll . || true
         cp /ucrt64/bin/libsigrokcxx*.dll . || true
@@ -140,16 +151,16 @@ jobs:
         mkdir -p imageformats
         cp /ucrt64/share/qt5/plugins/imageformats/*.dll imageformats/ || true
 
-        # Sigrok decoders
+        # sigrok decoders
         mkdir -p decoders
         cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
 
-        # Python runtime bundle
+        # python bundle
         rm -rf python_lib
         mkdir -p python_lib/Lib
         cp -r /ucrt64/lib/python3.14/* python_lib/Lib/ || true
 
-        # Create Windows launcher
+        # launcher
         printf '%s\n' \
           '@echo off' \
           'setlocal' \
@@ -159,13 +170,27 @@ jobs:
           'set "PYTHONPATH=%BASE%\python_lib\Lib;%BASE%\python_lib\Lib\site-packages;%BASE%\python_lib\Lib\lib-dynload"' \
           'set "QT_QPA_PLATFORM_PLUGIN_PATH=%BASE%\platforms"' \
           'set "QT_PLUGIN_PATH=%BASE%\styles;%BASE%\imageformats"' \
+          'echo Starting PulseView...' \
           '"%BASE%\pulseview.exe"' \
           'exit /b %errorlevel%' > run_pulseview.bat
 
         ls -la
+        find . -maxdepth 2 -type d | sort
 
-    - name: Upload PulseView artifact
+    - name: Run portable app (smoke-test)
+      shell: powershell
+      run: |
+        $path = "$env:GITHUB_WORKSPACE\pulseview-portable\run_pulseview.bat"
+        if (Test-Path $path) {
+          Write-Host "Launching portable PulseView:"
+          Write-Host $path
+          Start-Process -FilePath $path -Wait -NoNewWindow
+        } else {
+          throw "Portable launcher not found: $path"
+        }
+
+    - name: Upload portable artifact
       uses: actions/upload-artifact@v4
       with:
-        name: pulseview-fnirsi-dla16-win64
-        path: pulseview-artifact/
+        name: pulseview-portable-win64
+        path: pulseview-portable/
