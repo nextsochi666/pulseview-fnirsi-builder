@@ -1,183 +1,97 @@
-name: Build PulseView with FNIRSI DLA-16
+name: Windows build (cached)
 
 on:
-  push:
-    branches: [ main, master ]
   workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
 
 jobs:
-  build-windows-portable:
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: msys2 {0}
+  build-windows:
+    runs-on: windows-2022
+
+    env:
+      VCPKG_ROOT: C:/vcpkg
+      MSYSTEM: UCRT64
+      CHERE_INVOKING: 1
 
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Setup MSYS2 (UCRT64)
-      uses: msys2/setup-msys2@v2
-      with:
-        msystem: UCRT64
-        update: true
-        install: >-
-          git
-          make
-          cmake
-          ninja
-          pkg-config
-          mingw-w64-ucrt-x86_64-toolchain
-          mingw-w64-ucrt-x86_64-autotools
-          mingw-w64-ucrt-x86_64-gettext
-          mingw-w64-ucrt-x86_64-libtool
-          mingw-w64-ucrt-x86_64-glib2
-          mingw-w64-ucrt-x86_64-glibmm
-          mingw-w64-ucrt-x86_64-libsigc++
-          mingw-w64-ucrt-x86_64-libzip
-          mingw-w64-ucrt-x86_64-libusb
-          mingw-w64-ucrt-x86_64-boost
-          mingw-w64-ucrt-x86_64-qt5-base
-          mingw-w64-ucrt-x86_64-qt5-tools
-          mingw-w64-ucrt-x86_64-qt5-svg
-          mingw-w64-ucrt-x86_64-doxygen
-          mingw-w64-ucrt-x86_64-python
+      - name: Cache vcpkg + installed deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            C:/vcpkg
+            ${{ github.workspace }}/third_party/vcpkg_installed
+          key: ${{ runner.os }}-vcpkg-${{ hashFiles('scripts/install_msvc_dlls.cmd', 'scripts/vcpkg/**') }}
+          restore-keys: |
+            ${{ runner.os }}-vcpkg-
 
-    - name: Build libsigrok with FNIRSI DLA-16 patch
-      run: |
-        git clone https://github.com/sigrokproject/libsigrok.git
-        cd libsigrok
-        curl -L https://github.com/sigrokproject/libsigrok/pull/306.diff -o pr306.diff
-        git apply pr306.diff || (echo "Ошибка применения патча" && exit 1)
-        if [ -x ./configure ]; then echo "configure уже есть"; else ./autogen.sh; fi
-        ./configure --prefix=/ucrt64
-        make -j$(nproc)
-        make install
+      - name: Cache MSYS2 UCRT64
+        uses: actions/cache@v4
+        with:
+          path: C:/msys64
+          key: ${{ runner.os }}-msys2-ucrt64-${{ hashFiles('.github/workflows/windows-build.yml') }}
+          restore-keys: |
+            ${{ runner.os }}-msys2-ucrt64-
 
-    - name: Build libsigrokdecode (with Python)
-      run: |
-        git clone https://github.com/sigrokproject/libsigrokdecode.git
-        cd libsigrokdecode
-        if [ -x ./configure ]; then echo "configure уже есть"; else ./autogen.sh; fi
-        ./configure --prefix=/ucrt64
-        make -j$(nproc)
-        make install
+      - name: Bootstrap vcpkg
+        shell: pwsh
+        run: |
+          if (!(Test-Path "C:/vcpkg/vcpkg.exe")) {
+            git clone https://github.com/microsoft/vcpkg.git C:/vcpkg
+          }
+          if (!(Test-Path "C:/vcpkg/bootstrap-vcpkg.bat")) {
+            throw "vcpkg bootstrap script not found"
+          }
+          C:/vcpkg/bootstrap-vcpkg.bat
 
-    - name: Build PulseView
-      run: |
-        git clone https://github.com/sigrokproject/pulseview.git
-        cd pulseview
-        mkdir build && cd build
+      - name: Setup MSYS2 UCRT64
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-autotools
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-tools-git
+            mingw-w64-ucrt-x86_64-ntldd
 
-        export PKG_CONFIG_PATH=/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig:$PKG_CONFIG_PATH
+      - name: Install Windows dependencies via vcpkg
+        shell: cmd
+        run: scripts\install_msvc_dlls.cmd
 
-        export GLIB_CFLAGS="-I/ucrt64/include -I/ucrt64/include/glib-2.0 -I/ucrt64/lib/glib-2.0/include"
-        export GLIBMM_CFLAGS="-I/ucrt64/include/glibmm-2.4 -I/ucrt64/lib/glibmm-2.4/include"
-        export SIGC_CFLAGS="-I/ucrt64/include/sigc++-2.0 -I/ucrt64/lib/sigc++-2.0/include"
-        export USB_CFLAGS="-I/ucrt64/include/libusb-1.0"
-        export QT_CFLAGS="-I/ucrt64/include/qt5 -I/ucrt64/include/qt5/QtWidgets -I/ucrt64/include/qt5/QtGui -I/ucrt64/include/qt5/QtCore -I/ucrt64/include/qt5/QtSvg"
+      - name: Configure and build USB shim first
+        shell: cmd
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release --target bridge_usb
 
-        export CFLAGS="$GLIB_CFLAGS $GLIBMM_CFLAGS $SIGC_CFLAGS $USB_CFLAGS $QT_CFLAGS -I/ucrt64/include/python3.14"
-        export CXXFLAGS="$CFLAGS"
-        export CPPFLAGS="$CFLAGS"
+      - name: Build libsigrok in MSYS2 UCRT64
+        shell: pwsh
+        run: |
+          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "sh scripts/build_libsigrok.sh"
 
-        cmake .. -G Ninja \
-          -DCMAKE_PREFIX_PATH=/ucrt64 \
-          -DCMAKE_INSTALL_PREFIX=/ucrt64 \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_AUTOMOC_COMPILER_PREDEFINES=OFF \
-          -DCMAKE_NO_SYSTEM_FROM_IMPORTED=ON \
-          -DENABLE_SIGNALS=OFF \
-          -DQt5_DIR=/ucrt64/lib/cmake/Qt5 \
-          -DPython3_ROOT_DIR=/ucrt64 \
-          -DCMAKE_C_FLAGS="$CFLAGS" \
-          -DCMAKE_CXX_FLAGS="$CFLAGS"
+      - name: Fetch sigrok firmware
+        shell: pwsh
+        run: |
+          & "C:/msys64/usr/bin/env.exe" MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash -lc "sh scripts/fetch_sigrok_firmware.sh"
 
-        ninja
+      - name: Build final bridge
+        shell: cmd
+        run: |
+          cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+          cmake --build build --config Release
 
-    - name: Create portable app folder
-      run: |
-        set -eux
-
-        mkdir -p "$GITHUB_WORKSPACE/pulseview-portable"
-        cd "$GITHUB_WORKSPACE/pulseview-portable"
-
-        PV_EXE=$(find "$GITHUB_WORKSPACE" -name "pulseview.exe" -type f | head -n 1)
-        if [ -z "$PV_EXE" ]; then
-          echo "pulseview.exe not found"
-          exit 1
-        fi
-
-        cp "$PV_EXE" .
-
-        # Qt deploy
-        WINDEPLOYQT=$(find /ucrt64/bin -name "windeployqt*.exe" | head -n 1)
-        if [ -n "$WINDEPLOYQT" ]; then
-          "$WINDEPLOYQT" --no-opengl-sw --no-translations --no-compiler-runtime pulseview.exe || true
-        fi
-
-        # runtime DLLs
-        cp /ucrt64/bin/*.dll . || true
-        cp /ucrt64/bin/libsigrok*.dll . || true
-        cp /ucrt64/bin/libsigrokcxx*.dll . || true
-        cp /ucrt64/bin/libsigrokdecode*.dll . || true
-        cp /ucrt64/bin/libusb*.dll . || true
-        cp /ucrt64/bin/libglib*.dll . || true
-        cp /ucrt64/bin/libgobject*.dll . || true
-        cp /ucrt64/bin/libgmodule*.dll . || true
-        cp /ucrt64/bin/libgio*.dll . || true
-        cp /ucrt64/bin/libzip*.dll . || true
-        cp /ucrt64/bin/libstdc++*.dll . || true
-        cp /ucrt64/bin/libgcc_s_*.dll . || true
-        cp /ucrt64/bin/libwinpthread*.dll . || true
-        cp /ucrt64/bin/libglibmm*.dll . || true
-        cp /ucrt64/bin/libsigc*.dll . || true
-        cp /ucrt64/bin/Qt5*.dll . || true
-        cp /ucrt64/bin/zlib1.dll . || true
-        cp /ucrt64/bin/libicuin*.dll . || true
-        cp /ucrt64/bin/libicuuc*.dll . || true
-        cp /ucrt64/bin/libicudt*.dll . || true
-        cp /ucrt64/bin/libdouble-conversion.dll . || true
-        cp /ucrt64/bin/libpython*.dll . || true
-
-        # Qt plugin folders
-        mkdir -p platforms
-        QWINDOWS=$(find /ucrt64 -name "qwindows.dll" 2>/dev/null | head -n 1)
-        if [ -n "$QWINDOWS" ]; then cp "$QWINDOWS" platforms/; fi
-
-        mkdir -p styles
-        cp /ucrt64/share/qt5/plugins/styles/*.dll styles/ || true
-
-        mkdir -p imageformats
-        cp /ucrt64/share/qt5/plugins/imageformats/*.dll imageformats/ || true
-
-        # sigrok decoders
-        mkdir -p decoders
-        cp -r /ucrt64/share/libsigrokdecode/decoders/* decoders/ || true
-
-        # python bundle
-        rm -rf python_lib
-        mkdir -p python_lib/Lib
-        cp -r /ucrt64/lib/python3.14/* python_lib/Lib/ || true
-
-        # launcher
-        printf '%s\n' \
-          '@echo off' \
-          'setlocal' \
-          'set "BASE=%~dp0"' \
-          'set "PATH=%BASE%;%PATH%"' \
-          'set "PYTHONHOME=%BASE%\python_lib"' \
-          'set "PYTHONPATH=%BASE%\python_lib\Lib;%BASE%\python_lib\Lib\site-packages;%BASE%\python_lib\Lib\lib-dynload"' \
-          'set "QT_QPA_PLATFORM_PLUGIN_PATH=%BASE%\platforms"' \
-          'set "QT_PLUGIN_PATH=%BASE%\styles;%BASE%\imageformats"' \
-          '"%BASE%\pulseview.exe"' \
-          'exit /b %errorlevel%' > run_pulseview.bat
-
-        ls -la
-        find . -maxdepth 2 -type d | sort
-
-    - name: Upload portable artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: pulseview-portable-win64
-        path: pulseview-portable/
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bitoscope-sigrok-bridge-win
+          path: build/drivers/Release
+          if-no-files-found: error
